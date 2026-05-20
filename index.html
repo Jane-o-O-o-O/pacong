@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>豆瓣电影 Top 250 可视化</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: linear-gradient(135deg, #1a5e2a 0%, #0d3d1a 100%);
+    padding: 48px 24px;
+    text-align: center;
+    border-bottom: 3px solid #2ea043;
+  }
+  .header h1 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .header p {
+    font-size: 1.1rem;
+    opacity: 0.85;
+    max-width: 700px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ── Stats Bar ── */
+  .stats-bar {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    padding: 28px 24px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-wrap: wrap;
+  }
+  .stat-item {
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #2ea043;
+  }
+  .stat-label {
+    font-size: 0.85rem;
+    color: #8b949e;
+    margin-top: 4px;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    max-width: 1200px;
+    margin: 24px auto;
+    padding: 0 24px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .search-box {
+    flex: 1;
+    min-width: 220px;
+    padding: 10px 16px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-box:focus { border-color: #2ea043; }
+  .search-box::placeholder { color: #484f58; }
+
+  select.filter-select {
+    padding: 10px 14px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 0.95rem;
+    outline: none;
+    cursor: pointer;
+  }
+  select.filter-select:focus { border-color: #2ea043; }
+
+  .sort-btn {
+    padding: 10px 18px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #21262d;
+    color: #e6edf3;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .sort-btn:hover { background: #30363d; }
+  .sort-btn.active { border-color: #2ea043; color: #2ea043; }
+
+  .result-count {
+    color: #8b949e;
+    font-size: 0.9rem;
+    margin-left: auto;
+  }
+
+  /* ── Grid ── */
+  .movie-grid {
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 20px;
+  }
+
+  /* ── Card ── */
+  .movie-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+    cursor: pointer;
+    position: relative;
+  }
+  .movie-card:hover {
+    transform: translateY(-4px);
+    border-color: #2ea043;
+  }
+
+  .card-rank {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: #2ea043;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+
+  .card-poster {
+    width: 100%;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    display: block;
+    background: #21262d;
+  }
+
+  .card-body {
+    padding: 14px;
+  }
+
+  .card-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .card-meta {
+    font-size: 0.82rem;
+    color: #8b949e;
+    margin-bottom: 8px;
+  }
+
+  .card-rating {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .rating-stars {
+    color: #f0883e;
+    font-size: 0.9rem;
+  }
+  .rating-num {
+    font-weight: 700;
+    color: #f0883e;
+    font-size: 1.1rem;
+  }
+  .rating-count {
+    font-size: 0.78rem;
+    color: #8b949e;
+  }
+
+  .card-genre {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .genre-tag {
+    background: #21262d;
+    border: 1px solid #30363d;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    color: #8b949e;
+  }
+
+  .card-synopsis {
+    font-size: 0.82rem;
+    color: #8b949e;
+    margin-top: 8px;
+    font-style: italic;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 16px;
+    max-width: 700px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    position: relative;
+  }
+  .modal-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: #8b949e;
+    font-size: 1.6rem;
+    cursor: pointer;
+    z-index: 2;
+    line-height: 1;
+  }
+  .modal-close:hover { color: #e6edf3; }
+
+  .modal-top {
+    display: flex;
+    gap: 20px;
+    padding: 24px;
+  }
+  .modal-poster {
+    width: 180px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .modal-poster img {
+    width: 100%;
+    display: block;
+  }
+  .modal-info { flex: 1; }
+  .modal-info h2 {
+    font-size: 1.4rem;
+    margin-bottom: 4px;
+  }
+  .modal-info .en-title {
+    color: #8b949e;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+  }
+  .modal-rating-big {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .modal-rating-big .num {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #f0883e;
+  }
+  .modal-rating-big .stars {
+    color: #f0883e;
+    font-size: 1.1rem;
+  }
+  .modal-rating-big .count {
+    color: #8b949e;
+    font-size: 0.85rem;
+  }
+
+  .modal-details {
+    padding: 0 24px 24px;
+  }
+  .detail-row {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 0.9rem;
+  }
+  .detail-label {
+    width: 100px;
+    flex-shrink: 0;
+    color: #8b949e;
+  }
+  .detail-value {
+    flex: 1;
+    color: #e6edf3;
+  }
+
+  .modal-synopsis {
+    margin-top: 16px;
+    padding: 16px;
+    background: #0d1117;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: #c9d1d9;
+  }
+  .modal-synopsis h4 {
+    color: #8b949e;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+  }
+
+  .modal-link {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 8px 20px;
+    background: #2ea043;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+  }
+  .modal-link:hover { background: #3fb950; }
+
+  /* ── Loading ── */
+  .loading {
+    text-align: center;
+    padding: 80px 24px;
+    color: #8b949e;
+  }
+  .loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #30363d;
+    border-top-color: #2ea043;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Chart Section ── */
+  .charts-section {
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .chart-box {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-box h3 {
+    font-size: 1rem;
+    margin-bottom: 16px;
+    color: #c9d1d9;
+  }
+  .bar-chart .bar-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.82rem;
+  }
+  .bar-chart .bar-label {
+    width: 80px;
+    flex-shrink: 0;
+    color: #8b949e;
+    text-align: right;
+    padding-right: 10px;
+  }
+  .bar-chart .bar-track {
+    flex: 1;
+    height: 20px;
+    background: #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-chart .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ea043, #3fb950);
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+  .bar-chart .bar-count {
+    width: 50px;
+    text-align: right;
+    color: #8b949e;
+    padding-left: 8px;
+    font-size: 0.78rem;
+  }
+
+  .rating-dist .dist-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 0.82rem;
+  }
+  .rating-dist .dist-label {
+    width: 40px;
+    color: #f0883e;
+    font-weight: 600;
+  }
+  .rating-dist .dist-bar {
+    flex: 1;
+    height: 18px;
+    background: #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0 8px;
+  }
+  .rating-dist .dist-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f0883e, #f7b955);
+    border-radius: 4px;
+  }
+  .rating-dist .dist-count {
+    width: 30px;
+    text-align: right;
+    color: #8b949e;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 32px 24px;
+    border-top: 1px solid #30363d;
+    color: #484f58;
+    font-size: 0.85rem;
+  }
+
+  /* ── Action Bar ── */
+  .action-bar {
+    max-width: 1200px;
+    margin: 0 auto 24px;
+    padding: 0 24px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .action-btn {
+    padding: 10px 20px;
+    border: 1px solid #2ea043;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #1a5e2a 0%, #0d3d1a 100%);
+    color: #e6edf3;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .action-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #237a35 0%, #145a24 100%);
+    border-color: #3fb950;
+    transform: translateY(-1px);
+  }
+  .action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .action-btn.danger {
+    border-color: #f85149;
+    background: linear-gradient(135deg, #5a1a1a 0%, #3d0d0d 100%);
+  }
+  .action-btn.danger:hover:not(:disabled) {
+    border-color: #ff6b6b;
+    background: linear-gradient(135deg, #7a2323 0%, #5a1414 100%);
+  }
+  .action-btn.secondary {
+    border-color: #30363d;
+    background: #21262d;
+  }
+  .action-btn.secondary:hover:not(:disabled) {
+    background: #30363d;
+    border-color: #484f58;
+  }
+
+  .search-inline {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .search-inline input {
+    padding: 10px 14px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 0.95rem;
+    outline: none;
+    width: 220px;
+    transition: border-color 0.2s;
+  }
+  .search-inline input:focus { border-color: #2ea043; }
+  .search-inline input::placeholder { color: #484f58; }
+
+  .action-separator {
+    width: 1px;
+    height: 28px;
+    background: #30363d;
+    margin: 0 4px;
+  }
+
+  .status-badge {
+    margin-left: auto;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-badge.idle {
+    background: #21262d;
+    color: #8b949e;
+    border: 1px solid #30363d;
+  }
+  .status-badge.running {
+    background: #1a3a1a;
+    color: #3fb950;
+    border: 1px solid #2ea043;
+    animation: pulse-border 2s ease-in-out infinite;
+  }
+  .status-badge.done {
+    background: #1a3a1a;
+    color: #3fb950;
+    border: 1px solid #2ea043;
+  }
+  .status-badge.error {
+    background: #3d1a1a;
+    color: #f85149;
+    border: 1px solid #f85149;
+  }
+  @keyframes pulse-border {
+    0%, 100% { border-color: #2ea043; }
+    50% { border-color: #3fb950; box-shadow: 0 0 8px rgba(46, 160, 67, 0.3); }
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status-badge.running .status-dot {
+    animation: blink 1s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* ── Progress Panel ── */
+  .progress-panel {
+    max-width: 1200px;
+    margin: 0 auto 24px;
+    padding: 0 24px;
+    display: none;
+  }
+  .progress-panel.visible { display: block; }
+
+  .progress-box {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: #1c2129;
+    border-bottom: 1px solid #30363d;
+    cursor: pointer;
+    user-select: none;
+  }
+  .progress-header:hover { background: #21262d; }
+  .progress-header h4 {
+    font-size: 0.9rem;
+    color: #c9d1d9;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .progress-toggle {
+    color: #8b949e;
+    font-size: 0.85rem;
+    transition: transform 0.2s;
+  }
+  .progress-panel.collapsed .progress-toggle { transform: rotate(-90deg); }
+  .progress-panel.collapsed .progress-body { display: none; }
+
+  .progress-bar-container {
+    padding: 12px 18px;
+    background: #0d1117;
+  }
+  .progress-bar-track {
+    height: 6px;
+    background: #21262d;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ea043, #3fb950);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  .progress-body {
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 12px 18px;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 0.8rem;
+    line-height: 1.7;
+    color: #8b949e;
+    background: #0d1117;
+  }
+  .progress-body::-webkit-scrollbar { width: 6px; }
+  .progress-body::-webkit-scrollbar-track { background: transparent; }
+  .progress-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+  .log-line { padding: 1px 0; }
+  .log-line.info { color: #8b949e; }
+  .log-line.warning { color: #d29922; }
+  .log-line.error { color: #f85149; }
+  .log-line.success { color: #3fb950; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .header h1 { font-size: 1.6rem; }
+    .stats-bar { gap: 20px; }
+    .stat-value { font-size: 1.5rem; }
+    .charts-section { grid-template-columns: 1fr; }
+    .modal-top { flex-direction: column; align-items: center; }
+    .modal-poster { width: 140px; }
+    .action-bar { flex-direction: column; align-items: stretch; }
+    .action-separator { display: none; }
+    .status-badge { margin-left: 0; justify-content: center; }
+    .search-inline input { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>豆瓣电影 Top 250</h1>
+  <p>基于 Python 爬虫抓取的豆瓣电影 Top 250 数据，支持按评分、年份、类型筛选与搜索</p>
+</div>
+
+<div class="action-bar" id="actionBar">
+  <button class="action-btn" id="btnTop250" onclick="startTop250()">
+    <span>🎬</span> 爬取 Top 250
+  </button>
+  <div class="search-inline">
+    <input type="text" id="searchKeyword" placeholder="输入关键词搜索豆瓣...">
+    <button class="action-btn" id="btnSearch" onclick="startSearch()">
+      <span>🔍</span> 搜索
+    </button>
+  </div>
+  <button class="action-btn secondary" id="btnDetail" onclick="startDetail()">
+    <span>📋</span> 爬取详情
+  </button>
+  <div class="action-separator"></div>
+  <button class="action-btn secondary" id="btnExportJson" onclick="exportFile('json')">
+    <span>📄</span> 导出 JSON
+  </button>
+  <button class="action-btn secondary" id="btnExportCsv" onclick="exportFile('csv')">
+    <span>📊</span> 导出 CSV
+  </button>
+  <div class="status-badge idle" id="statusBadge">
+    <span class="status-dot"></span>
+    <span id="statusText">就绪</span>
+  </div>
+</div>
+
+<div class="progress-panel" id="progressPanel">
+  <div class="progress-box">
+    <div class="progress-header" onclick="toggleProgressPanel()">
+      <h4>
+        <span>📡</span> 实时日志
+        <span style="font-weight:400;color:#484f58;font-size:0.8rem" id="progressTask"></span>
+      </h4>
+      <span class="progress-toggle">▼</span>
+    </div>
+    <div class="progress-bar-container">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progressBar"></div>
+      </div>
+    </div>
+    <div class="progress-body" id="progressLog"></div>
+  </div>
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat-item">
+    <div class="stat-value" id="statTotal">-</div>
+    <div class="stat-label">电影总数</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="statAvgRating">-</div>
+    <div class="stat-label">平均评分</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="statTopRating">-</div>
+    <div class="stat-label">最高评分</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="statYearSpan">-</div>
+    <div class="stat-label">年份跨度</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="statRegions">-</div>
+    <div class="stat-label">国家/地区</div>
+  </div>
+</div>
+
+<div class="charts-section">
+  <div class="chart-box">
+    <h3>地区分布 Top 10</h3>
+    <div class="bar-chart" id="regionChart"></div>
+  </div>
+  <div class="chart-box">
+    <h3>评分分布</h3>
+    <div class="rating-dist" id="ratingChart"></div>
+  </div>
+</div>
+
+<div class="controls">
+  <input type="text" class="search-box" id="searchInput" placeholder="搜索电影名、导演、演员...">
+  <select class="filter-select" id="genreFilter">
+    <option value="">全部类型</option>
+  </select>
+  <select class="filter-select" id="regionFilter">
+    <option value="">全部地区</option>
+  </select>
+  <select class="filter-select" id="decadeFilter">
+    <option value="">全部年代</option>
+  </select>
+  <button class="sort-btn active" data-sort="ranking">排名</button>
+  <button class="sort-btn" data-sort="rating">评分</button>
+  <button class="sort-btn" data-sort="year">年份</button>
+  <button class="sort-btn" data-sort="rating_count">人气</button>
+  <span class="result-count" id="resultCount"></span>
+</div>
+
+<div class="movie-grid" id="movieGrid">
+  <div class="loading">
+    <div class="spinner"></div>
+    <p>加载数据中...</p>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modal">
+    <button class="modal-close" id="modalClose">&times;</button>
+    <div class="modal-top">
+      <div class="modal-poster"><img id="modalPoster" src="" alt=""></div>
+      <div class="modal-info">
+        <h2 id="modalTitle"></h2>
+        <div class="en-title" id="modalEnTitle"></div>
+        <div class="modal-rating-big">
+          <span class="num" id="modalRating"></span>
+          <span class="stars" id="modalStars"></span>
+          <span class="count" id="modalCount"></span>
+        </div>
+        <div class="card-genre" id="modalGenres"></div>
+      </div>
+    </div>
+    <div class="modal-details" id="modalDetails"></div>
+    <div class="modal-synopsis" id="modalSynopsis"></div>
+    <div style="padding: 0 24px 24px;">
+      <a class="modal-link" id="modalLink" href="#" target="_blank">在豆瓣查看</a>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  数据来源：豆瓣电影 Top 250 &middot; 由 douban_movie.py 爬虫抓取
+</div>
+
+<script>
+let allMovies = [];
+let currentSort = 'ranking';
+
+async function loadData() {
+  try {
+    const resp = await fetch('output/movies.json');
+    if (!resp.ok) throw new Error('fetch failed');
+    allMovies = await resp.json();
+  } catch {
+    // fallback: try relative path variations
+    try {
+      const resp2 = await fetch('./output/movies.json');
+      allMovies = await resp2.json();
+    } catch {
+      document.getElementById('movieGrid').innerHTML =
+        '<div class="loading"><p>无法加载 output/movies.json</p><p style="margin-top:8px;font-size:0.85rem;color:#484f58">请确保文件存在，并通过 HTTP 服务器访问本页面（如 python -m http.server）</p></div>';
+      return;
+    }
+  }
+  initApp();
+}
+
+function initApp() {
+  computeStats();
+  buildCharts();
+  buildFilters();
+  renderMovies();
+  bindEvents();
+}
+
+function computeStats() {
+  const n = allMovies.length;
+  document.getElementById('statTotal').textContent = n;
+
+  const avg = (allMovies.reduce((s, m) => s + (m.rating || 0), 0) / n).toFixed(1);
+  document.getElementById('statAvgRating').textContent = avg;
+
+  const top = Math.max(...allMovies.map(m => m.rating || 0)).toFixed(1);
+  document.getElementById('statTopRating').textContent = top;
+
+  const years = allMovies.map(m => parseInt(m.year)).filter(y => !isNaN(y));
+  document.getElementById('statYearSpan').textContent =
+    Math.min(...years) + '–' + Math.max(...years);
+
+  const regions = new Set();
+  allMovies.forEach(m => {
+    (m.region || '').split(/[\s/]+/).forEach(r => { if (r.trim()) regions.add(r.trim()); });
+  });
+  document.getElementById('statRegions').textContent = regions.size;
+}
+
+function buildCharts() {
+  // Region chart
+  const regionCount = {};
+  allMovies.forEach(m => {
+    (m.region || '').split(/[\s/]+/).forEach(r => {
+      const t = r.trim();
+      if (t) regionCount[t] = (regionCount[t] || 0) + 1;
+    });
+  });
+  const regionSorted = Object.entries(regionCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const maxRegion = regionSorted[0]?.[1] || 1;
+
+  document.getElementById('regionChart').innerHTML = regionSorted.map(([name, count]) =>
+    `<div class="bar-row">
+      <span class="bar-label">${name}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(count/maxRegion*100).toFixed(1)}%"></div></div>
+      <span class="bar-count">${count}</span>
+    </div>`
+  ).join('');
+
+  // Rating distribution
+  const ratingBuckets = {};
+  allMovies.forEach(m => {
+    const key = Math.floor(m.rating * 10) / 10;
+    ratingBuckets[key] = (ratingBuckets[key] || 0) + 1;
+  });
+  const ratingSorted = Object.entries(ratingBuckets).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
+  const maxRating = Math.max(...ratingSorted.map(r => r[1]));
+
+  document.getElementById('ratingChart').innerHTML = ratingSorted.map(([rating, count]) =>
+    `<div class="dist-row">
+      <span class="dist-label">${parseFloat(rating).toFixed(1)}</span>
+      <div class="dist-bar"><div class="dist-fill" style="width:${(count/maxRating*100).toFixed(1)}%"></div></div>
+      <span class="dist-count">${count}</span>
+    </div>`
+  ).join('');
+}
+
+function buildFilters() {
+  const genres = new Set();
+  const regions = new Set();
+  const decades = new Set();
+
+  allMovies.forEach(m => {
+    (m.genre || '').split(/[\s/]+/).forEach(g => { if (g.trim()) genres.add(g.trim()); });
+    (m.region || '').split(/[\s/]+/).forEach(r => { if (r.trim()) regions.add(r.trim()); });
+    const y = parseInt(m.year);
+    if (!isNaN(y)) decades.add(Math.floor(y / 10) * 10 + 's');
+  });
+
+  const genreSelect = document.getElementById('genreFilter');
+  [...genres].sort().forEach(g => {
+    genreSelect.innerHTML += `<option value="${g}">${g}</option>`;
+  });
+
+  const regionSelect = document.getElementById('regionFilter');
+  [...regions].sort().forEach(r => {
+    regionSelect.innerHTML += `<option value="${r}">${r}</option>`;
+  });
+
+  const decadeSelect = document.getElementById('decadeFilter');
+  [...decades].sort().forEach(d => {
+    decadeSelect.innerHTML += `<option value="${d}">${d}</option>`;
+  });
+}
+
+function getFilteredMovies() {
+  const search = document.getElementById('searchInput').value.toLowerCase().trim();
+  const genre = document.getElementById('genreFilter').value;
+  const region = document.getElementById('regionFilter').value;
+  const decade = document.getElementById('decadeFilter').value;
+
+  return allMovies.filter(m => {
+    if (search) {
+      const haystack = [m.title, m.original_title, m.director, m.actors, m.synopsis]
+        .join(' ').toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    if (genre && !(m.genre || '').includes(genre)) return false;
+    if (region && !(m.region || '').includes(region)) return false;
+    if (decade) {
+      const y = parseInt(m.year);
+      if (isNaN(y) || Math.floor(y / 10) * 10 + 's' !== decade) return false;
+    }
+    return true;
+  });
+}
+
+function sortMovies(movies) {
+  const sorted = [...movies];
+  switch (currentSort) {
+    case 'ranking':
+      sorted.sort((a, b) => (a.ranking || 999) - (b.ranking || 999));
+      break;
+    case 'rating':
+      sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      break;
+    case 'year':
+      sorted.sort((a, b) => parseInt(b.year || 0) - parseInt(a.year || 0));
+      break;
+    case 'rating_count':
+      sorted.sort((a, b) => (b.rating_count || 0) - (a.rating_count || 0));
+      break;
+  }
+  return sorted;
+}
+
+function renderStars(rating) {
+  const full = Math.floor(rating);
+  const half = rating % 1 >= 0.5 ? 1 : 0;
+  return '★'.repeat(full) + (half ? '☆' : '') + '☆'.repeat(5 - full - half);
+}
+
+function formatCount(n) {
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+  return n.toLocaleString();
+}
+
+function renderMovies() {
+  const filtered = sortMovies(getFilteredMovies());
+  document.getElementById('resultCount').textContent = `${filtered.length} / ${allMovies.length}`;
+
+  const grid = document.getElementById('movieGrid');
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="loading"><p>没有匹配的电影</p></div>';
+    return;
+  }
+
+  grid.innerHTML = filtered.map(m => {
+    const genres = (m.genre || '').split(/[\s/]+/).filter(Boolean).slice(0, 3);
+    return `<div class="movie-card" data-id="${m.id}">
+      ${m.ranking ? `<div class="card-rank">${m.ranking}</div>` : ''}
+      <img class="card-poster" src="${m.poster_url}" alt="${m.title}" loading="lazy"
+           onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 2 3%22><rect fill=%22%2321262d%22 width=%222%22 height=%223%22/><text x=%221%22 y=%221.6%22 text-anchor=%22middle%22 fill=%22%23484f58%22 font-size=%220.3%22>无海报</text></svg>'">
+      <div class="card-body">
+        <div class="card-title">${m.title}</div>
+        <div class="card-meta">${m.year || ''} &middot; ${m.region || ''}</div>
+        <div class="card-rating">
+          <span class="rating-stars">${renderStars(m.rating)}</span>
+          <span class="rating-num">${(m.rating || 0).toFixed(1)}</span>
+          <span class="rating-count">(${formatCount(m.rating_count || 0)}人)</span>
+        </div>
+        <div class="card-genre">
+          ${genres.map(g => `<span class="genre-tag">${g}</span>`).join('')}
+        </div>
+        ${m.synopsis ? `<div class="card-synopsis">${m.synopsis}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openModal(movieId) {
+  const m = allMovies.find(x => x.id === movieId);
+  if (!m) return;
+
+  document.getElementById('modalPoster').src = m.poster_url || '';
+  document.getElementById('modalTitle').textContent = m.title;
+  document.getElementById('modalEnTitle').textContent = m.original_title || '';
+  document.getElementById('modalRating').textContent = (m.rating || 0).toFixed(1);
+  document.getElementById('modalStars').textContent = renderStars(m.rating);
+  document.getElementById('modalCount').textContent = `${formatCount(m.rating_count || 0)}人评价`;
+
+  document.getElementById('modalGenres').innerHTML =
+    (m.genre || '').split(/[\s/]+/).filter(Boolean)
+      .map(g => `<span class="genre-tag">${g}</span>`).join('');
+
+  const details = [
+    ['排名', m.ranking ? `#${m.ranking}` : ''],
+    ['导演', m.director],
+    ['编剧', m.screenwriter],
+    ['主演', m.actors],
+    ['年份', m.year],
+    ['地区', m.region],
+    ['语言', m.language],
+    ['片长', m.duration],
+    ['上映日期', m.release_date],
+    ['又名', m.aka],
+    ['IMDb', m.imdb],
+    ['标签', m.tags],
+  ].filter(([_, v]) => v);
+
+  document.getElementById('modalDetails').innerHTML = details.map(([label, value]) =>
+    `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+  ).join('');
+
+  const synEl = document.getElementById('modalSynopsis');
+  if (m.synopsis) {
+    synEl.innerHTML = `<h4>剧情简介</h4>${m.synopsis}`;
+    synEl.style.display = 'block';
+  } else {
+    synEl.style.display = 'none';
+  }
+
+  document.getElementById('modalLink').href = m.url || '#';
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+
+function bindEvents() {
+  document.getElementById('searchInput').addEventListener('input', renderMovies);
+  document.getElementById('genreFilter').addEventListener('change', renderMovies);
+  document.getElementById('regionFilter').addEventListener('change', renderMovies);
+  document.getElementById('decadeFilter').addEventListener('change', renderMovies);
+
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentSort = btn.dataset.sort;
+      renderMovies();
+    });
+  });
+
+  document.getElementById('movieGrid').addEventListener('click', e => {
+    const card = e.target.closest('.movie-card');
+    if (card) openModal(card.dataset.id);
+  });
+
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+}
+
+loadData();
+
+// ─── 爬虫控制 ──────────────────────────────────────────
+
+let eventSource = null;
+let isScrapingRunning = false;
+
+function setButtonsDisabled(disabled) {
+  isScrapingRunning = disabled;
+  document.getElementById('btnTop250').disabled = disabled;
+  document.getElementById('btnSearch').disabled = disabled;
+  document.getElementById('btnDetail').disabled = disabled;
+}
+
+function updateStatusBadge(state) {
+  const badge = document.getElementById('statusBadge');
+  const text = document.getElementById('statusText');
+  badge.className = 'status-badge ' + state.status;
+
+  const labels = {
+    idle: '就绪',
+    running: '运行中...',
+    done: '已完成',
+    error: '出错',
+  };
+  text.textContent = labels[state.status] || state.status;
+
+  if (state.status === 'running') {
+    setButtonsDisabled(true);
+  } else {
+    setButtonsDisabled(false);
+  }
+}
+
+function showProgressPanel(taskName) {
+  const panel = document.getElementById('progressPanel');
+  panel.classList.add('visible');
+  panel.classList.remove('collapsed');
+  document.getElementById('progressLog').innerHTML = '';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('progressTask').textContent = taskName;
+}
+
+function toggleProgressPanel() {
+  document.getElementById('progressPanel').classList.toggle('collapsed');
+}
+
+function appendLog(message) {
+  const logEl = document.getElementById('progressLog');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+
+  if (message.includes('[ERROR]')) line.className += ' error';
+  else if (message.includes('[WARNING]')) line.className += ' warning';
+  else if (message.includes('✅')) line.className += ' success';
+
+  line.textContent = message;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function updateProgressBar(message) {
+  // 从日志中提取进度信息
+  const pageMatch = message.match(/第\s*(\d+)\/(\d+)/);
+  if (pageMatch) {
+    const current = parseInt(pageMatch[1]);
+    const total = parseInt(pageMatch[2]);
+    const pct = (current / total * 100).toFixed(0);
+    document.getElementById('progressBar').style.width = pct + '%';
+  }
+
+  const batchMatch = message.match(/\[(\d+)\/(\d+)\]/);
+  if (batchMatch) {
+    const current = parseInt(batchMatch[1]);
+    const total = parseInt(batchMatch[2]);
+    const pct = (current / total * 100).toFixed(0);
+    document.getElementById('progressBar').style.width = pct + '%';
+  }
+
+  if (message.includes('✅') || message.includes('完成')) {
+    document.getElementById('progressBar').style.width = '100%';
+  }
+}
+
+function connectSSE() {
+  if (eventSource) {
+    eventSource.close();
+  }
+
+  eventSource = new EventSource('/api/progress');
+
+  eventSource.onmessage = function(e) {
+    try {
+      const data = JSON.parse(e.data);
+
+      if (data.type === 'status') {
+        updateStatusBadge(data);
+      } else if (data.type === 'log') {
+        appendLog(data.message);
+        updateProgressBar(data.message);
+      } else if (data.type === 'heartbeat') {
+        updateStatusBadge(data);
+        // 任务完成时关闭 SSE 并刷新数据
+        if (data.status === 'done') {
+          eventSource.close();
+          eventSource = null;
+          setTimeout(refreshData, 500);
+        } else if (data.status === 'error') {
+          eventSource.close();
+          eventSource = null;
+        }
+      }
+    } catch (err) {
+      // ignore parse errors
+    }
+  };
+
+  eventSource.onerror = function() {
+    // SSE 连接断开时自动重连（仅在爬虫运行中）
+    if (isScrapingRunning) {
+      setTimeout(connectSSE, 2000);
+    } else {
+      eventSource.close();
+      eventSource = null;
+    }
+  };
+}
+
+async function startScraping(endpoint, body, taskName) {
+  if (isScrapingRunning) return;
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await resp.json();
+
+    if (data.success) {
+      showProgressPanel(taskName);
+      appendLog(data.message);
+      connectSSE();
+    } else {
+      alert(data.message);
+    }
+  } catch (err) {
+    alert('请求失败: ' + err.message);
+  }
+}
+
+function startTop250() {
+  if (!confirm('爬取 Top 250 将需要 2-5 分钟，确定继续吗？')) return;
+  startScraping('/api/top250', {}, 'Top 250');
+}
+
+function startSearch() {
+  const keyword = document.getElementById('searchKeyword').value.trim();
+  if (!keyword) {
+    alert('请输入搜索关键词');
+    document.getElementById('searchKeyword').focus();
+    return;
+  }
+  startScraping('/api/search', { keyword, pages: 3 }, '搜索: ' + keyword);
+}
+
+function startDetail() {
+  const ids = allMovies.filter(m => m.id).map(m => m.id);
+  if (ids.length === 0) {
+    alert('没有可爬取详情的电影，请先加载数据');
+    return;
+  }
+  if (!confirm(`将为 ${ids.length} 部电影爬取详情，耗时较长，确定继续吗？`)) return;
+  startScraping('/api/detail', { movie_ids: ids }, '批量详情');
+}
+
+async function refreshData() {
+  try {
+    const resp = await fetch('output/movies.json?t=' + Date.now());
+    if (resp.ok) {
+      allMovies = await resp.json();
+      initApp();
+      appendLog('✅ 页面数据已刷新');
+    }
+  } catch (err) {
+    // ignore
+  }
+}
+
+function exportFile(fmt) {
+  window.open('/api/export/' + fmt, '_blank');
+}
+
+// 回车触发搜索
+document.getElementById('searchKeyword').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') startSearch();
+});
+
+// 页面加载时检查爬虫状态
+async function checkInitialStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    const state = await resp.json();
+    updateStatusBadge(state);
+    if (state.status === 'running') {
+      showProgressPanel(state.task);
+      connectSSE();
+    }
+  } catch {
+    // 不在 Flask 环境中运行，忽略
+  }
+}
+checkInitialStatus();
+</script>
+</body>
+</html>
