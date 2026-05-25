@@ -11,13 +11,22 @@ Usage:
 import json
 import queue
 import logging
+import os
+import sqlite3
 import threading
 import time
 from pathlib import Path
 
+import requests as http_requests
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from douban_movie import DoubanScraper
+
+# ─── 硅基流动 API 配置 ──────────────────────────────────
+
+SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "")
+SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
+CHAT_MODEL = "Qwen/Qwen3-32B"
 
 # ─── Flask App ──────────────────────────────────────────
 
@@ -244,6 +253,213 @@ def api_export(fmt):
         return jsonify({"success": False, "message": f"文件不存在: {filename}"}), 404
 
     return send_from_directory("output", filename, as_attachment=True)
+
+
+# ─── 电影问答系统 ──────────────────────────────────────
+
+_movie_data_cache = None
+_movie_data_cache_key = None
+
+
+def get_movie_context():
+    """加载电影数据作为知识库上下文（带缓存）"""
+    global _movie_data_cache, _movie_data_cache_key
+
+    sqlite_path = Path("output/movies.sqlite")
+    json_path = Path("output/movies.json")
+    csv_path = Path("output/movies.csv")
+
+    if sqlite_path.exists():
+        source_path = sqlite_path
+        source_type = "sqlite"
+    elif json_path.exists():
+        source_path = json_path
+        source_type = "json"
+    else:
+        return "暂无电影数据，请先爬取。"
+
+    cache_key = (source_type, source_path.stat().st_mtime, csv_path.stat().st_mtime if csv_path.exists() else 0)
+    if _movie_data_cache is not None and cache_key == _movie_data_cache_key:
+        return _movie_data_cache
+
+    if source_type == "sqlite":
+        conn = sqlite3.connect(sqlite_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, title, original_title, year, rating, rating_count,
+                       director, screenwriter, actors, genre, region, language,
+                       duration, release_date, aka, imdb, synopsis, ranking,
+                       tags, url
+                FROM movies
+                ORDER BY CAST(COALESCE(ranking, '999999') AS INTEGER), title
+                """
+            ).fetchall()
+            movies = [dict(row) for row in rows]
+        finally:
+            conn.close()
+    else:
+        with open(json_path, encoding="utf-8") as f:
+            movies = json.load(f)
+
+    lines = []
+    for m in movies:
+        parts = [f"《{m.get('title', '未知')}》"]
+        if m.get("original_title"):
+            parts.append(f"原名:{m['original_title']}")
+        if m.get("year"):
+            parts.append(f"({m['year']})")
+        if m.get("rating"):
+            parts.append(f"评分:{m['rating']}")
+        if m.get("rating_count"):
+            parts.append(f"{m['rating_count']}人评价")
+        if m.get("director"):
+            parts.append(f"导演:{m['director']}")
+        if m.get("screenwriter"):
+            parts.append(f"编剧:{m['screenwriter']}")
+        if m.get("actors"):
+            parts.append(f"主演:{m['actors']}")
+        if m.get("genre"):
+            parts.append(f"类型:{m['genre']}")
+        if m.get("region"):
+            parts.append(f"地区:{m['region']}")
+        if m.get("language"):
+            parts.append(f"语言:{m['language']}")
+        if m.get("duration"):
+            parts.append(f"片长:{m['duration']}")
+        if m.get("release_date"):
+            parts.append(f"上映:{m['release_date']}")
+        if m.get("tags"):
+            parts.append(f"标签:{m['tags']}")
+        if m.get("ranking"):
+            parts.append(f"Top250排名:{m['ranking']}")
+        if m.get("synopsis"):
+            synopsis = str(m["synopsis"]).strip()
+            if len(synopsis) > 320:
+                synopsis = synopsis[:320] + "..."
+            parts.append(f"简介:{synopsis}")
+        lines.append(" | ".join(parts))
+
+    _movie_data_cache = "\n".join(lines)
+    _movie_data_cache_key = cache_key
+    return _movie_data_cache
+
+
+def build_system_prompt():
+    """构建系统提示词"""
+    movie_data = get_movie_context()
+    return f"""你是「爬取电影知识库问答助手」，专门回答当前本地电影知识库里的问题。
+
+以下是你掌握的电影数据：
+{movie_data}
+
+规则：
+1. 只基于上述数据回答问题，不要编造不在数据中的电影、评分、人物或剧情
+2. 回答使用中文，优先给出直接结论，再列关键依据
+3. 如果知识库里没有足够信息，明确说明“当前知识库没有记录”
+4. 推荐电影时说明理由，例如评分、导演、类型、地区、简介或排名
+5. 可以进行比较、排序、筛选、归纳和问答，但不要声称访问了实时豆瓣数据"""
+
+
+@app.route("/api/chat/meta")
+def api_chat_meta():
+    """返回问答知识库状态"""
+    sqlite_path = Path("output/movies.sqlite")
+    json_path = Path("output/movies.json")
+
+    source = None
+    count = 0
+    if sqlite_path.exists():
+        source = "SQLite"
+        conn = sqlite3.connect(sqlite_path)
+        try:
+            count = conn.execute('SELECT COUNT(*) FROM "movies"').fetchone()[0]
+        finally:
+            conn.close()
+    elif json_path.exists():
+        source = "JSON"
+        with open(json_path, encoding="utf-8") as f:
+            count = len(json.load(f))
+
+    return jsonify({
+        "model": CHAT_MODEL,
+        "source": source,
+        "count": count,
+        "ready": source is not None and count > 0,
+    })
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """电影问答接口（流式响应）"""
+    data = request.get_json(force=True)
+    user_message = data.get("message", "").strip()
+    history = data.get("history", [])
+
+    if not user_message:
+        return jsonify({"success": False, "message": "请输入问题"}), 400
+
+    messages = [{"role": "system", "content": build_system_prompt()}]
+    for h in history[-10:]:
+        role = h.get("role")
+        content = h.get("content")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_message})
+
+    def stream():
+        if not SILICONFLOW_API_KEY:
+            yield f"data: {json.dumps({'type': 'error', 'message': '请先设置环境变量 SILICONFLOW_API_KEY'}, ensure_ascii=False)}\n\n"
+            return
+
+        try:
+            resp = http_requests.post(
+                SILICONFLOW_API_URL,
+                headers={
+                    "Authorization": f"Bearer {SILICONFLOW_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": CHAT_MODEL,
+                    "messages": messages,
+                    "stream": True,
+                    "max_tokens": 1024,
+                    "temperature": 0.7,
+                },
+                stream=True,
+                timeout=60,
+            )
+
+            if resp.status_code != 200:
+                error_msg = resp.text[:200]
+                yield f"data: {json.dumps({'type': 'error', 'message': f'API 错误: {error_msg}'}, ensure_ascii=False)}\n\n"
+                return
+
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                line = line.decode("utf-8")
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:]
+                if payload.strip() == "[DONE]":
+                    yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+                    break
+                try:
+                    chunk = json.loads(payload)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        yield f"data: {json.dumps({'type': 'content', 'content': content}, ensure_ascii=False)}\n\n"
+                except json.JSONDecodeError:
+                    continue
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return Response(stream(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ─── 入口 ──────────────────────────────────────────────
